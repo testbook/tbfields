@@ -12,11 +12,22 @@ const (
 	JsonTagKey = "json"
 )
 
-func isTagKeyValid(tagKey string) error {
-	if tagKey != BsonTagKey && tagKey != JsonTagKey {
-		return errors.New("unsupported tag key")
+func getTagKey(tagKeys []string) (string, error) {
+
+	tagKey := BsonTagKey
+
+	if len(tagKeys) > 1 {
+		return tagKey, errors.New("only 1 tag key is allowed")
 	}
-	return nil
+
+	if len(tagKeys) > 0 {
+		tagKey = strings.ToLower(strings.TrimSpace(tagKeys[0]))
+		if tagKey != BsonTagKey && tagKey != JsonTagKey {
+			return tagKey, errors.New("invalid tag key")
+		}
+	}
+
+	return tagKey, nil
 }
 
 func getAllFields(updateModel interface{}, tagKey string) bson.M {
@@ -53,10 +64,10 @@ func filterFields(allFields bson.M, fields []string) (bson.M, []string) {
 	return filteredFields, fieldsNotFound
 }
 
-func GetFields(updateModel interface{}, fields []string, tagKey string) (filteredFields bson.M, fieldsNotFound []string, err error) {
+func GetFields(updateModel interface{}, fields []string, tagKeys ...string) (filteredFields bson.M, fieldsNotFound []string, err error) {
 
-	tagKey = strings.ToLower(strings.TrimSpace(tagKey))
-	if err := isTagKeyValid(tagKey); err != nil {
+	tagKey, err := getTagKey(tagKeys)
+	if err != nil {
 		return nil, nil, err
 	}
 
