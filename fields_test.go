@@ -34,9 +34,9 @@ func TestGetFields(t *testing.T) {
 func TestGetFieldsWithNestedObjects(t *testing.T) {
 
 	type RobotFingers struct {
-		MiddleFinger string                 `bson:"middleFinger"`
-		FirstFinger  string                 `bson:"firstFinger"`
-		Properties   map[string]interface{} `bson:"properties"`
+		MiddleFinger string                      `bson:"middleFinger"`
+		FirstFinger  string                      `bson:"firstFinger"`
+		Properties   map[interface{}]interface{} `bson:"properties"`
 	}
 
 	type RobotHand struct {
@@ -59,7 +59,7 @@ func TestGetFieldsWithNestedObjects(t *testing.T) {
 		Fingers: &RobotFingers{
 			MiddleFinger: "MF",
 			FirstFinger:  "FF",
-			Properties: map[string]interface{}{
+			Properties: map[interface{}]interface{}{
 				"kachra": "seth",
 				"stock":  "market",
 				"100":    10000,
