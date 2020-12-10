@@ -7,11 +7,6 @@ import (
 	"strings"
 )
 
-const (
-	BsonTagKey = "bson"
-	JsonTagKey = "json"
-)
-
 func getTagKey(tagKeys []string) (string, error) {
 
 	tagKey := BsonTagKey
@@ -30,22 +25,45 @@ func getTagKey(tagKeys []string) (string, error) {
 	return tagKey, nil
 }
 
-func getAllFields(updateModel interface{}, tagKey string) bson.M {
-	fieldsToConsider := bson.M{}
+func getAllFields(updateModel interface{}, tagKey string, prefixKey string, fieldsToConsider bson.M) {
 
-	dataValue := reflect.ValueOf(updateModel).Elem()
-	typeOfCurrentField := dataValue.Type()
-
-	for i := dataValue.NumField() - 1; i >= 0; i-- {
-
-		currentField := dataValue.Field(i)
-
-		if data, ok := typeOfCurrentField.Field(i).Tag.Lookup(tagKey); ok && currentField.CanInterface() {
-			fieldsToConsider[data] = currentField.Interface()
-		}
+	dataValue := reflect.ValueOf(updateModel)
+	if dataValue.Kind() == reflect.Ptr {
+		dataValue = dataValue.Elem()
 	}
 
-	return fieldsToConsider
+	typeOfCurrentField := dataValue.Type()
+
+	for i := 0; i < dataValue.NumField(); i++ {
+
+		currentField := dataValue.Field(i)
+		currentPrefixKey := prefixKey + KeysSeparatorDot
+
+		if prefixKey == EmptyString {
+			currentPrefixKey = EmptyString
+		}
+
+		//update currentField with respective data type pointed by pointer
+		if currentField.Kind() == reflect.Ptr {
+			currentField = reflect.Indirect(currentField)
+		}
+
+		if currentField.Kind() == reflect.Struct {
+
+			getAllFields(currentField.Interface(), tagKey, currentPrefixKey+typeOfCurrentField.Field(i).Tag.Get(tagKey), fieldsToConsider)
+
+		} else if currentField.Kind() == reflect.Map {
+
+			//todo: implement code for map
+
+		} else {
+
+			key := typeOfCurrentField.Field(i).Tag.Get(tagKey)
+			if key != EmptyString && key != HyphenString && currentField.CanInterface() {
+				fieldsToConsider[currentPrefixKey+key] = currentField.Interface()
+			}
+		}
+	}
 }
 
 func filterFields(allFields bson.M, fields []string) (bson.M, []string) {
@@ -71,7 +89,8 @@ func GetFields(updateModel interface{}, fields []string, tagKeys ...string) (fil
 		return nil, nil, err
 	}
 
-	allFields := getAllFields(updateModel, tagKey)
+	allFields := bson.M{}
+	getAllFields(updateModel, tagKey, EmptyString, allFields)
 
 	filteredFields, fieldsNotFound = filterFields(allFields, fields)
 
