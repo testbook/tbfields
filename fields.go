@@ -31,35 +31,42 @@ func getTagKey(tagKeys []string) (string, error) {
 //here we are changing struct to map because other way round is not possible and to avoid interlinked recursive calls
 //struct can have map inside it
 //map can have struct inside it
-func getAllFields(updateModel interface{}, tagKey string, prefixKey string) bson.M {
+func getAllFields(updateModel interface{}, tagKey string) bson.M {
 
 	fields := bson.M{}
 
-	currentField := reflect.ValueOf(updateModel)
+	input := reflect.ValueOf(updateModel)
 
 	//update currentField with respective data type pointed by pointer
 	//since pointer itself can have multiple layer of pointers to be pointed
-	for isPointer(currentField.Kind()) {
-		currentField = currentField.Elem()
+	//also any type implements interface hence touch down from deepest interface{} to concrete type
+	for isPointer(input.Kind()) || isInterface(input.Kind()) {
+		input = input.Elem()
 	}
 
-	if isStruct(currentField.Kind()) {
+	if isStruct(input.Kind()) {
 
-		newMap := translateStructToMap(currentField, tagKey)
-		currentField = reflect.ValueOf(newMap)
+		newMap := translateStructToMap(input, tagKey)
+		input = reflect.ValueOf(newMap)
 
-	} else if !isMap(currentField.Kind()) {
+	} else if !isMap(input.Kind()) {
 		//invalid type for an object. this block should never execute
 		return fields
 	}
 
 	//current field will always be a type of map
-	for _, key := range currentField.MapKeys() {
+	for _, key := range input.MapKeys() {
 
-		currentValue := currentField.MapIndex(key)
+		currentValue := input.MapIndex(key)
+
+		//inn case of map input itself keys will be of type interface instead if string
+		for isPointer(key.Kind()) || isInterface(key.Kind()) {
+			key = key.Elem()
+		}
 
 		//invalid to have other ds in keys except string
 		if key.Kind() != reflect.String {
+			fmt.Println(key.Kind())
 			continue
 		}
 
@@ -67,17 +74,19 @@ func getAllFields(updateModel interface{}, tagKey string, prefixKey string) bson
 			continue
 		}
 
-		//currentValue is giving interface{}  here instead of primitive type
-		fmt.Println(currentValue.Kind())
+		for isPointer(currentValue.Kind()) || isInterface(currentValue.Kind()) {
+			currentValue = currentValue.Elem()
+		}
 
-		if isPrimitive(currentValue.Kind()) || currentValue.Kind() == reflect.Interface {
+		if isPrimitive(currentValue.Kind()) {
 
 			//add primitive data directly in
 			newKeyPrefix := key.Interface().(string)
 			fields[newKeyPrefix] = currentValue.Interface()
 
-		} else if isMap(currentValue.Kind()) || isStruct(currentValue.Kind()) || isPointer(currentValue.Kind()) {
-			newMap := getAllFields(currentValue.Interface(), tagKey, "")
+		} else if isMap(currentValue.Kind()) || isStruct(currentValue.Kind()) {
+
+			newMap := getAllFields(currentValue.Interface(), tagKey)
 
 			newKeyPrefix := key.Interface().(string)
 
@@ -94,25 +103,22 @@ func getAllFields(updateModel interface{}, tagKey string, prefixKey string) bson
 
 func isPrimitive(kind reflect.Kind) bool {
 
-	switch kind {
-	case reflect.Bool:
-	case reflect.Int:
-	case reflect.Int8:
-	case reflect.Int16:
-	case reflect.Int32:
-	case reflect.Int64:
-	case reflect.Uint:
-	case reflect.Uint8:
-	case reflect.Uint16:
-	case reflect.Uint32:
-	case reflect.Uint64:
-	case reflect.Uintptr:
-	case reflect.Float32:
-	case reflect.Float64:
-	case reflect.String:
+	if reflect.Bool == kind ||
+		reflect.Int == kind ||
+		reflect.Int8 == kind ||
+		reflect.Int16 == kind ||
+		reflect.Int32 == kind ||
+		reflect.Int64 == kind ||
+		reflect.Uint == kind ||
+		reflect.Uint8 == kind ||
+		reflect.Uint16 == kind ||
+		reflect.Uint32 == kind ||
+		reflect.Uint64 == kind ||
+		reflect.Float32 == kind ||
+		reflect.Float64 == kind ||
+		reflect.String == kind {
+
 		return true
-	default:
-		return false
 	}
 
 	return false
@@ -128,6 +134,10 @@ func isStruct(kind reflect.Kind) bool {
 
 func isPointer(kind reflect.Kind) bool {
 	return kind == reflect.Ptr
+}
+
+func isInterface(kind reflect.Kind) bool {
+	return kind == reflect.Interface
 }
 
 func translateStructToMap(structData reflect.Value, tagKey string) interface{} {
@@ -150,10 +160,9 @@ func translateStructToMap(structData reflect.Value, tagKey string) interface{} {
 		//truncate the object tree if key is hyphen
 		if key != HyphenString && currentField.CanInterface() {
 
-			//if key is empty then roll back to variable name
-			//todo: verify below method works properly
+			//if bson or json tag is not present then key is empty hence roll back to variable name
 			if key == EmptyString {
-				key = typeOfCurrentField.Name()
+				key = typeOfCurrentField.Field(i).Name
 			}
 
 			newMap[key] = currentField.Interface()
@@ -186,7 +195,7 @@ func GetFields(updateModel interface{}, fields []string, tagKeys ...string) (fil
 		return nil, nil, err
 	}
 
-	allFields := getAllFields(updateModel, tagKey, EmptyString)
+	allFields := getAllFields(updateModel, tagKey)
 
 	filteredFields, fieldsNotFound = filterFields(allFields, fields)
 
