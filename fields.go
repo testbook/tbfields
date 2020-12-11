@@ -31,7 +31,7 @@ func getTagKey(tagKeys []string) (string, error) {
 //here we are changing struct to map because other way round is not possible and to avoid interlinked recursive calls
 //struct can have map inside it
 //map can have struct inside it
-func getAllFields(updateModel interface{}, tagKey string) bson.M {
+func getAllFields(updateModel interface{}, tagKey string, prefixKey string) bson.M {
 
 	fields := bson.M{}
 
@@ -39,99 +39,98 @@ func getAllFields(updateModel interface{}, tagKey string) bson.M {
 
 	//update currentField with respective data type pointed by pointer
 	//since pointer itself can have multiple layer of pointers to be pointed
-	for currentField.Kind() == reflect.Ptr {
+	for isPointer(currentField.Kind()) {
 		currentField = currentField.Elem()
 	}
 
-	if currentField.Kind() == reflect.Map {
+	if isStruct(currentField.Kind()) {
 
-		for _, key := range currentField.MapKeys() {
+		newMap := translateStructToMap(currentField, tagKey)
+		currentField = reflect.ValueOf(newMap)
 
-			currentValue := currentField.MapIndex(key)
+	} else if !isMap(currentField.Kind()) {
+		//invalid type for an object. this block should never execute
+		return fields
+	}
 
-			//invalid to have other ds in keys except string
-			if key.Kind() != reflect.String {
-				continue
-			}
+	//current field will always be a type of map
+	for _, key := range currentField.MapKeys() {
 
-			if currentValue.CanInterface() {
+		currentValue := currentField.MapIndex(key)
 
-				newMap := getAllFields(currentValue.Interface(), tagKey)
-
-				newKeyPrefix := key.Interface().(string)
-
-				for k, v := range newMap {
-					fields[fmt.Sprintf(KeysFormatter, newKeyPrefix, k)] = v
-				}
-
-			}
+		//invalid to have other ds in keys except string
+		if key.Kind() != reflect.String {
+			continue
 		}
 
-	} else if currentField.Kind() == reflect.Struct {
+		if !currentValue.CanInterface() {
+			continue
+		}
 
-		newMap, _ := translateStructToMap(currentField, tagKey)
+		//currentValue is giving interface{}  here instead of primitive type
+		fmt.Println(currentValue.Kind())
 
-		newKeyPrefix := key.Interface().(string)
+		if isPrimitive(currentValue.Kind()) || currentValue.Kind() == reflect.Interface {
 
-		for k, v := range newMap {
-			fields[fmt.Sprintf(KeysFormatter, newKeyPrefix, k)] = v
+			//add primitive data directly in
+			newKeyPrefix := key.Interface().(string)
+			fields[newKeyPrefix] = currentValue.Interface()
+
+		} else if isMap(currentValue.Kind()) || isStruct(currentValue.Kind()) || isPointer(currentValue.Kind()) {
+			newMap := getAllFields(currentValue.Interface(), tagKey, "")
+
+			newKeyPrefix := key.Interface().(string)
+
+			for k, v := range newMap {
+				fields[fmt.Sprintf(KeysFormatter, newKeyPrefix, k)] = v
+			}
+		} else {
+			//ignore current type like func or chan
 		}
 	}
 
 	return fields
-
-	//if dataValue.Kind() == reflect.Struct {
-	//
-	//	for i := 0; i < dataValue.NumField(); i++ {
-	//
-	//		currentField := dataValue.Field(i)
-	//		currentPrefixKey := prefixKey + KeysSeparatorDot
-	//
-	//		if prefixKey == EmptyString {
-	//			currentPrefixKey = EmptyString
-	//		}
-	//
-	//		//update currentField with respective data type pointed by pointer
-	//		//since pointer itself can have multiple layer of pointers to be pointed
-	//		for currentField.Kind() == reflect.Ptr {
-	//			currentField = reflect.Indirect(currentField)
-	//		}
-	//
-	//		if currentField.Kind() == reflect.Struct {
-	//
-	//			getAllFields(currentField.Interface(), tagKey, currentPrefixKey+typeOfCurrentField.Field(i).Tag.Get(tagKey), fieldsToConsider)
-	//
-	//		} else if currentField.Kind() == reflect.Map {
-	//
-	//		} else {
-	//
-	//			key := typeOfCurrentField.Field(i).Tag.Get(tagKey)
-	//			if key != EmptyString && key != HyphenString && currentField.CanInterface() && !isValueNonAcceptable(currentField.Kind()) {
-	//				fieldsToConsider[currentPrefixKey+key] = currentField.Interface()
-	//			}
-	//		}
-	//	}
-	//
-	//} else {
-	//
-	//}
 }
 
-//allow only primitive type for values
-func isValueNonAcceptable(kind reflect.Kind) bool {
-	if kind == reflect.Map || kind == reflect.Interface || kind == reflect.Uintptr || kind == reflect.Ptr || kind == reflect.Chan ||
-		kind == reflect.Func || kind == reflect.Struct {
+func isPrimitive(kind reflect.Kind) bool {
+
+	switch kind {
+	case reflect.Bool:
+	case reflect.Int:
+	case reflect.Int8:
+	case reflect.Int16:
+	case reflect.Int32:
+	case reflect.Int64:
+	case reflect.Uint:
+	case reflect.Uint8:
+	case reflect.Uint16:
+	case reflect.Uint32:
+	case reflect.Uint64:
+	case reflect.Uintptr:
+	case reflect.Float32:
+	case reflect.Float64:
+	case reflect.String:
 		return true
+	default:
+		return false
 	}
 
 	return false
 }
 
-func translateStructToMap(structData reflect.Value, tagKey string) (bson.M, error) {
+func isMap(kind reflect.Kind) bool {
+	return kind == reflect.Map
+}
 
-	if structData.Kind() != reflect.Struct {
-		return nil, errors.New("non struct is passed for conversion")
-	}
+func isStruct(kind reflect.Kind) bool {
+	return kind == reflect.Struct
+}
+
+func isPointer(kind reflect.Kind) bool {
+	return kind == reflect.Ptr
+}
+
+func translateStructToMap(structData reflect.Value, tagKey string) interface{} {
 
 	newMap := bson.M{}
 
@@ -147,27 +146,21 @@ func translateStructToMap(structData reflect.Value, tagKey string) (bson.M, erro
 		}
 
 		key := typeOfCurrentField.Field(i).Tag.Get(tagKey)
-		if currentField.Kind() == reflect.Struct {
 
-			nestedMap, err := translateStructToMap(currentField, tagKey)
-			if err != nil {
-				return nil, err
+		//truncate the object tree if key is hyphen
+		if key != HyphenString && currentField.CanInterface() {
+
+			//if key is empty then roll back to variable name
+			//todo: verify below method works properly
+			if key == EmptyString {
+				key = typeOfCurrentField.Name()
 			}
 
-			for k, v := range nestedMap {
-				newKey := fmt.Sprintf(KeysFormatter, key, k)
-				newMap[newKey] = v
-			}
-
-		}
-
-		if key != EmptyString && key != HyphenString && currentField.CanInterface() && !isValueNonAcceptable(currentField.Kind()) {
 			newMap[key] = currentField.Interface()
 		}
 
 	}
-
-	return newMap, nil
+	return newMap
 }
 
 func filterFields(allFields bson.M, fields []string) (bson.M, []string) {
@@ -193,8 +186,7 @@ func GetFields(updateModel interface{}, fields []string, tagKeys ...string) (fil
 		return nil, nil, err
 	}
 
-	allFields := bson.M{}
-	getAllFields(updateModel, tagKey, EmptyString, allFields)
+	allFields := getAllFields(updateModel, tagKey, EmptyString)
 
 	filteredFields, fieldsNotFound = filterFields(allFields, fields)
 
