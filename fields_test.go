@@ -82,6 +82,9 @@ func TestGetFieldsWithNestedObjects(t *testing.T) {
 		Hands    RobotHand `bson:"hands"`
 	}
 
+	arrayRef := [3]int{1, 2, 3}
+	sliceref := []int{1, 2, 3}
+
 	robot := Robot{ID: 9999, Name: "testName"}
 	robot.Hands = RobotHand{
 		LeftHand:  "LH",
@@ -93,6 +96,8 @@ func TestGetFieldsWithNestedObjects(t *testing.T) {
 				"kachra": "seth",
 				"stock":  "market",
 				"100":    10000,
+				"array":  arrayRef,
+				"slice":  sliceref,
 			},
 		},
 	}
@@ -103,6 +108,7 @@ func TestGetFieldsWithNestedObjects(t *testing.T) {
 		[]string{
 			"id", "name", "lastName", "hands.leftHand", "hands.rightHand", "hands.robotFingers.middleFinger", "hands.robotFingers.firstFinger",
 			"hands.robotFingers.properties.kachra", "hands.robotFingers.properties.stock",
+			"hands.robotFingers.properties.array", "hands.robotFingers.properties.slice",
 		}, BsonTagKey)
 	if err != nil {
 		assert.Error(err)
@@ -112,7 +118,7 @@ func TestGetFieldsWithNestedObjects(t *testing.T) {
 	assert.Len(fieldsNotFound, 1) //lastName will not be found
 
 	assert.NotNil(filterFields)
-	assert.Len(filterFields, 8)
+	assert.Len(filterFields, 10)
 	assert.Equal(filterFields["id"], 9999)
 	assert.Equal(filterFields["name"], "testName")
 	assert.Equal(filterFields["hands.leftHand"], "LH")
@@ -121,5 +127,6 @@ func TestGetFieldsWithNestedObjects(t *testing.T) {
 	assert.Equal(filterFields["hands.robotFingers.firstFinger"], "FF")
 	assert.Equal(filterFields["hands.robotFingers.properties.kachra"], "seth")
 	assert.Equal(filterFields["hands.robotFingers.properties.stock"], "market")
-	//assert.Equal(filterFields["hands.robotFingers.properties.100"], 10000)
+	assert.Equal(filterFields["hands.robotFingers.properties.array"], arrayRef)
+	assert.Equal(filterFields["hands.robotFingers.properties.slice"], sliceref)
 }

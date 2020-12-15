@@ -116,7 +116,9 @@ func isPrimitive(kind reflect.Kind) bool {
 		reflect.Uint64 == kind ||
 		reflect.Float32 == kind ||
 		reflect.Float64 == kind ||
-		reflect.String == kind {
+		reflect.String == kind ||
+		reflect.Slice == kind ||
+		reflect.Array == kind {
 
 		return true
 	}
